@@ -82,11 +82,11 @@ class SupportTests(unittest.TestCase):
         self.assertEqual(result["status"], "escalated")
 
     def test_persisted_contact_information_is_redacted(self):
-        self.call(message="Mi correo persona@example.com y teléfono +593 994 203 888; devolución producto plazo")
+        self.call(message="Mi correo persona@example.com y teléfono +000 000 000 000; devolución producto plazo")
         result = self.call(action="conversation")
         content = result["messages"][0]["content"]
         self.assertNotIn("persona@example.com", content)
-        self.assertNotIn("994", content)
+        self.assertNotIn("000", content)
         self.assertIn("[correo]", content)
         self.assertIn("[teléfono]", content)
 
