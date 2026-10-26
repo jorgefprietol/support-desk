@@ -2,6 +2,10 @@
 
 Bandeja de atención con respuestas apoyadas en políticas, historial de conversación y escalamiento humano. Una consulta sobre devoluciones recibe el fragmento vigente de la política; una consulta sin evidencia pasa a la cola del equipo. Las conversaciones escaladas permanecen en esa cola hasta su resolución explícita.
 
+## Contexto y confidencialidad
+
+Este caso de uso forma parte de mi experiencia en soluciones implementadas en producción durante trabajos de consultoría. La versión pública es una implementación independiente con datos sintéticos que permite revisar la arquitectura, los flujos y los controles. Por confidencialidad, no se incluyen la identidad del cliente, su código ni sus registros operativos.
+
 El servicio funciona localmente con Python y SQLite. Incluye búsqueda TF-IDF y un selector de fuentes opcional con Ollama. El canal de entrada puede etiquetarse como web, correo o WhatsApp; no se realizan envíos a esas plataformas.
 
 ## Diseño y tecnologías
