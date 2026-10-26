@@ -111,6 +111,51 @@ class SupportTests(unittest.TestCase):
         self.call(action="knowledge_delete", document_id="returns")
         self.assertEqual(self.call(message="devolución producto")["status"], "escalated")
 
+    def test_recreated_faq_keeps_monotonic_version_and_rejects_stale_write(self):
+        before = self.call(message="devolución producto")["sources"][0]
+        self.call(action="knowledge_delete", document_id="returns")
+        recreated = self.call(action="knowledge_upsert", document=dict(FAQS[0], text="La devolución del producto requiere revisión en diez días."))
+        self.assertEqual(recreated["version"], 3)
+        after = self.call(message="devolución producto")["sources"][0]
+        self.assertEqual(after["chunk_id"], before["chunk_id"])
+        self.assertEqual(after["version"], 3)
+        with self.assertRaisesRegex(ValueError, "version conflict"):
+            self.call(action="knowledge_upsert", document=dict(FAQS[0], expected_version=1))
+        self.assertIn("diez", self.call(message="devolución producto")["answer"])
+
+    def test_delete_invalidates_predelete_expected_version(self):
+        self.call(action="knowledge_delete", document_id="returns")
+        for expected in (0, 1):
+            with self.assertRaisesRegex(ValueError, "version conflict"):
+                self.call(action="knowledge_upsert", document=dict(FAQS[0], expected_version=expected))
+
+    def test_repeated_missing_delete_does_not_advance_revision(self):
+        self.assertTrue(self.call(action="knowledge_delete", document_id="returns")["deleted"])
+        self.assertFalse(self.call(action="knowledge_delete", document_id="returns")["deleted"])
+        self.assertEqual(self.call(action="knowledge_upsert", document=FAQS[0])["version"], 3)
+
+    def test_revision_ledger_is_tenant_scoped(self):
+        self.call(action="knowledge_delete", document_id="returns")
+        result = self.call(tenant="shop-b", action="knowledge_upsert", document=dict(FAQS[0], expected_version=0))
+        self.assertEqual(result["version"], 1)
+        self.assertEqual(self.call(action="knowledge_upsert", document=FAQS[0])["version"], 3)
+
+    def test_delete_rollback_restores_index_and_revision(self):
+        def fail_after_delete(payload, store):
+            process({"tenant":"shop-a", "action":"knowledge_delete", "document_id":"returns"}, store)
+            raise ValueError("later operation failed")
+        with self.assertRaisesRegex(ValueError, "later operation"):
+            self.store.run({}, uuid.uuid4().hex, fail_after_delete)
+        self.assertEqual(self.call(message="devolución producto")["sources"][0]["version"], 1)
+        self.call(action="knowledge_delete", document_id="returns")
+        self.assertEqual(self.call(action="knowledge_upsert", document=FAQS[0])["version"], 3)
+
+    def test_legacy_active_versions_backfill_revision_ledger(self):
+        self.call(action="knowledge_upsert", document=dict(FAQS[0], text="La devolución del producto se solicita en diez días.", expected_version=1))
+        self.store.connection.execute("DROP TABLE document_revisions")
+        self.call(action="knowledge_delete", document_id="returns")
+        self.assertEqual(self.call(action="knowledge_upsert", document=FAQS[0])["version"], 4)
+
     def test_retry_does_not_duplicate_conversation_turn(self):
         payload = {"tenant": "shop-a", "conversation_id": "retry-1", "message": "devolución producto plazo"}
         first, replay = self.store.run(payload, "incoming-message-1", process)

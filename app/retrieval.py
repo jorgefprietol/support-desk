@@ -23,6 +23,9 @@ def identifier(value, field):
 def initialize(connection):
     connection.execute("CREATE TABLE IF NOT EXISTS documents (tenant TEXT, document_id TEXT, title TEXT NOT NULL, content TEXT NOT NULL, access_group TEXT NOT NULL, version INTEGER NOT NULL, PRIMARY KEY(tenant,document_id))")
     connection.execute("CREATE TABLE IF NOT EXISTS chunks (tenant TEXT, chunk_id TEXT, document_id TEXT NOT NULL, position INTEGER NOT NULL, content TEXT NOT NULL, PRIMARY KEY(tenant,chunk_id))")
+    connection.execute("CREATE TABLE IF NOT EXISTS document_revisions (tenant TEXT, document_id TEXT, version INTEGER NOT NULL, PRIMARY KEY(tenant,document_id))")
+    # Preserve existing active versions when upgrading a database created before the ledger.
+    connection.execute("INSERT OR IGNORE INTO document_revisions SELECT tenant,document_id,version FROM documents")
 
 
 def split_text(text, size=700):
@@ -53,7 +56,8 @@ def put(connection, tenant, document):
         raise ValueError("text is required (up to 100000 characters)")
     previous = connection.execute("SELECT * FROM documents WHERE tenant=? AND document_id=?", (tenant, doc_id)).fetchone()
     expected = document.get("expected_version")
-    current = previous["version"] if previous else 0
+    revision = connection.execute("SELECT version FROM document_revisions WHERE tenant=? AND document_id=?", (tenant, doc_id)).fetchone()
+    current = max(previous["version"] if previous else 0, revision["version"] if revision else 0)
     if expected is not None and (isinstance(expected, bool) or not isinstance(expected, int) or expected != current):
         raise ValueError("document version conflict")
     unchanged = previous and (previous["content"], previous["title"], previous["access_group"]) == (content, title, group)
@@ -61,6 +65,7 @@ def put(connection, tenant, document):
         return {"document_id": doc_id, "version": current, "changed": False}
     version = current + 1
     connection.execute("INSERT INTO documents VALUES(?,?,?,?,?,?) ON CONFLICT(tenant,document_id) DO UPDATE SET title=excluded.title,content=excluded.content,access_group=excluded.access_group,version=excluded.version", (tenant, doc_id, title, content, group, version))
+    connection.execute("INSERT INTO document_revisions VALUES(?,?,?) ON CONFLICT(tenant,document_id) DO UPDATE SET version=excluded.version", (tenant, doc_id, version))
     connection.execute("DELETE FROM chunks WHERE tenant=? AND document_id=?", (tenant, doc_id))
     for position, chunk in enumerate(split_text(content)):
         chunk_id = hashlib.sha256(f"{tenant}:{doc_id}:{position}".encode()).hexdigest()[:20]
@@ -71,6 +76,13 @@ def put(connection, tenant, document):
 def remove(connection, tenant, doc_id):
     identifier(tenant, "tenant")
     identifier(doc_id, "document_id")
+    previous = connection.execute("SELECT version FROM documents WHERE tenant=? AND document_id=?", (tenant, doc_id)).fetchone()
+    if previous is None:
+        return False
+    revision = connection.execute("SELECT version FROM document_revisions WHERE tenant=? AND document_id=?", (tenant, doc_id)).fetchone()
+    # A tombstone advances the revision so a pre-delete write cannot recreate the document.
+    next_revision = max(previous["version"], revision["version"] if revision else 0) + 1
+    connection.execute("INSERT INTO document_revisions VALUES(?,?,?) ON CONFLICT(tenant,document_id) DO UPDATE SET version=excluded.version", (tenant, doc_id, next_revision))
     connection.execute("DELETE FROM chunks WHERE tenant=? AND document_id=?", (tenant, doc_id))
     result = connection.execute("DELETE FROM documents WHERE tenant=? AND document_id=?", (tenant, doc_id))
     return bool(result.rowcount)

@@ -4,6 +4,12 @@ Bandeja de atención con respuestas apoyadas en políticas, historial de convers
 
 El servicio funciona localmente con Python y SQLite. Incluye búsqueda TF-IDF y un selector de fuentes opcional con Ollama. El canal de entrada puede etiquetarse como web, correo o WhatsApp; no se realizan envíos a esas plataformas.
 
+## Diseño y tecnologías
+
+Python 3.10+, SQLite y recuperación TF-IDF; selector de fuentes con Ollama opcional. Incluye consola HTTP, contenedor y workflow de entrada n8n.
+
+[Diagrama de arquitectura](docs/architecture.md) · [Diagrama del flujo](docs/flow.md) · [Tecnologías y alcance](docs/technologies.md)
+
 ## Ejecutar
 
 Requiere Python 3.10 o superior. Desde el repositorio:

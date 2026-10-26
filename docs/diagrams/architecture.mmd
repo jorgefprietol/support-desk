@@ -1,0 +1,19 @@
+flowchart TB
+    Client["CLI o consola web"] --> API["API con token e idempotencia"]
+    subgraph Local["Servicio local implementado"]
+        API --> Domain["Conversaciones y estados"]
+        Domain --> Access["Filtro de organización"]
+        Access --> Rank["Recuperación TF-IDF"]
+        Rank --> Answer["Fragmento citado o abstención"]
+        Answer --> Domain
+        Domain --> Human["Cola y resolución humana"]
+        Domain --> DB["SQLite y auditoría"]
+    end
+    subgraph Optional["Componentes opcionales por configurar"]
+        N8N["Workflow n8n incluido"]
+        Model["Selector de fuentes Ollama"]
+    end
+    N8N -.-> API
+    Rank -.-> Model
+    Model -.-> Answer
+    Channel["Adaptador de canal externo pendiente"] -.-> N8N
